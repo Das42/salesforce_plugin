@@ -1,4 +1,4 @@
-#from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryFile
 import logging
 import json
 
@@ -47,17 +47,25 @@ class SalesforceBulkQueryToGCSOperator(BaseOperator):
         sf_conn = SalesforceHook(self.sf_conn_id)#.get_conn()
 
         logging.info(self.soql)
-        #query_results = sf_conn.bulk.__getattr__(self.object).query(self.soql)
-        query_results = sf_conn.query(self.soql)
+        query_results = sf_conn.make_query(self.soql)
 
-        gcs = GCSHook(
-            gcp_conn_id=self.gcp_conn_id,
-            delegate_to=self.delegate_to)
+
+        gcs = GoogleCloudStorageHook(
+            self.gcp_conn_id)
+            #delegate_to=self.delegate_to)
 
         # One JSON Object Per Line
-        query_results = [json.dumps(result, ensure_ascii=False) for result in query_results]
+
+        #query_results = json.dumps(query_results)
+
+        query_results = [json.dumps(result, ensure_ascii=False) for result in query_results['records']]
         query_results = '\n'.join(query_results)
 
+        logging.info(query_results)
+
+        byte_object = bytes(query_results, 'utf-8')
+        temp_file = NamedTemporaryFile(mode='w+b')
+        temp_file.write(byte_object)
         # s3.load_string(
         #     query_results,
         #     self.s3_key,
@@ -65,9 +73,19 @@ class SalesforceBulkQueryToGCSOperator(BaseOperator):
         #     replace=True)
 
         gcs.upload(
-            bucket_name=self.bucket,
-            object_name=self.gcs_filename, #The object name to set when uploading the file.
-            data=query_results, #The file's data as a string or bytes to be uploaded.
-            #mime_type='application/json',
+            bucket=self.gcs_bucket,
+            object='test',
+            filename=temp_file.name
+            #object_name=self.gcs_filename, #The object name to set when uploading the file.
+            #data=query_results, #The file's data as a string or bytes to be uploaded.
+            #mime_type='text/csv'
             #gzip=self.gzip --best practice would be uncompressed
         )
+
+def get_all_fields(sf_conn_id,object):
+    #get SF hook
+    sf_conn = SalesforceHook(sf_conn_id)#.get_conn()
+
+    #get list of available fields for current SF object
+    field_list = sf_conn.get_available_fields(object)
+    return field_list
